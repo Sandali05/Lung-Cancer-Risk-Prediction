@@ -71,3 +71,36 @@ export default function Page() {
     COPD_DIAGNOSIS: "no",
     FAMILY_HISTORY: "no",
   });
+
+  // Baseline slider (used as pi_deploy in %)
+  const [baseline, setBaseline] = useState<number>(50);
+  const [pct, setPct] = useState<string>("—");
+  const [details, setDetails] = useState<PredictResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [modelInfo, setModelInfo] = useState<any>(null);
+
+  useEffect(() => {
+    fetchModelInfo().then(setModelInfo).catch(() => {});
+  }, []);
+
+  const onChange = (k: string, v: any) => setInputs((s: any) => ({ ...s, [k]: v }));
+
+  const onPredict = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const data = await fetchPredict(inputs, baseline); // <-- send slider as pi_deploy
+      const main = Number(data.risk_percentage) || 0;
+      setPct(main.toFixed(1) + "%");
+      setDetails(data);
+    } catch (e: any) {
+      setError(e?.message ?? "Prediction failed");
+      setPct("—");
+      setDetails(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const barWidth = pct.endsWith("%") ? pct : "0%";
