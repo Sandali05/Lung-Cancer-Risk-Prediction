@@ -57,3 +57,17 @@ async function fetchModelInfo() {
   if (!r.ok) throw new Error(`GET /model-info failed: ${r.status}`);
   return r.json();
 }
+
+export default function Page() {
+  // Default inputs (booleans as "yes"/"no"). Gender kept 0/1.
+  const [inputs, setInputs] = useState<any>({
+    GENDER: 1, // 0=female, 1=male
+    RADON_EXPOSURE: "no",
+    ALCOHOL_CONSUMPTION: "no",
+    AGE: 60,
+    PACK_YEARS: 20,
+    ASBESTOS_EXPOSURE: "no",
+    SECONDHAND_SMOKE_EXPOSURE: "no",
+    COPD_DIAGNOSIS: "no",
+    FAMILY_HISTORY: "no",
+  });
