@@ -16,3 +16,8 @@ if missing:
     raise FileNotFoundError(
         f"Missing model artifacts: {missing_str}. Run `python lungcancer.py` to train and save them in the same folder as app.py."
     )
+
+scaler = joblib.load(SCALER_PATH)           # fitted on [age, pack_years]
+log_reg_model = joblib.load(LOGREG_PATH)
+
+app = FastAPI(title="Lung Cancer Risk API", version="1.0")
