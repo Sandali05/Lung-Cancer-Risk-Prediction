@@ -40,3 +40,16 @@ CSV_PATH = os.getenv(
 SCALER_PATH = os.path.join(BASE_DIR, "scaler.pkl")
 MODEL_PATH  = os.path.join(BASE_DIR, "model.pkl")
 META_PATH   = os.path.join(BASE_DIR, "meta.json")
+
+# ----- Columns (and explicit binary meanings) -----
+NUMERIC_COLS = ["age", "pack_years"]
+BINARY_COLS  = [
+    "gender",
+    "radon_exposure",
+    "asbestos_exposure",
+    "secondhand_smoke_exposure",
+    "copd_diagnosis",
+    "alcohol_consumption",
+    "family_history",
+]
+TARGET = "lung_cancer"
