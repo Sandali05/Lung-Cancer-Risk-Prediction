@@ -86,3 +86,28 @@ def load_dataframe():
         raise FileNotFoundError(f"CSV not found at: {CSV_PATH}")
 
     df = pd.read_csv(CSV_PATH)
+
+     # Drop identifiers if present
+    for col in ["patient_id", "id", "uuid"]:
+        if col in df.columns:
+            df = df.drop(columns=[col])
+
+    # Coerce binary columns explicitly
+    for c in BINARY_COLS + [TARGET]:
+        if c in df.columns:
+            df[c] = df[c].apply(_parse_bin).astype(int)
+        else:
+            raise ValueError(f"Expected column missing in CSV: {c}")
+
+    # Coerce numeric
+    for c in NUMERIC_COLS:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0).astype(float)
+        else:
+            raise ValueError(f"Expected numeric column missing: {c}")
+
+    # Final column order for X
+    feature_order = NUMERIC_COLS + BINARY_COLS
+    X = df[feature_order].copy()
+    y = df[TARGET].astype(int).copy()
+    return X, y, feature_order
