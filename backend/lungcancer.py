@@ -64,3 +64,25 @@ BINARY_MEANING = {
     "alcohol_consumption": "0=no, 1=yes",
     "family_history": "0=no, 1=yes",
 }
+
+def _parse_bin(val):
+    """Coerce common yes/no forms to 0/1. Unknown → 0."""
+    if val is None:
+        return 0
+    s = str(val).strip().lower()
+    if s in {"1","y","yes","true","t"}:
+        return 1
+    if s in {"0","n","no","false","f"}:
+        return 0
+    # numeric?
+    try:
+        f = float(s)
+        return 1 if f >= 0.5 else 0
+    except:
+        return 0
+
+def load_dataframe():
+    if not os.path.exists(CSV_PATH):
+        raise FileNotFoundError(f"CSV not found at: {CSV_PATH}")
+
+    df = pd.read_csv(CSV_PATH)
