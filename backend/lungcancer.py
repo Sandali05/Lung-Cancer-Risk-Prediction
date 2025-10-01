@@ -80,3 +80,69 @@ def _parse_bin(val):
         return 1 if f >= 0.5 else 0
     except:
         return 0
+    
+    def load_dataframe():
+    if not os.path.exists(CSV_PATH):
+        raise FileNotFoundError(f"CSV not found at: {CSV_PATH}")
+
+    df = pd.read_csv(CSV_PATH)
+
+    # Drop identifiers if present
+    for col in ["patient_id", "id", "uuid"]:
+        if col in df.columns:
+            df = df.drop(columns=[col])
+
+    # Coerce binary columns explicitly
+    for c in BINARY_COLS + [TARGET]:
+        if c in df.columns:
+            df[c] = df[c].apply(_parse_bin).astype(int)
+        else:
+            raise ValueError(f"Expected column missing in CSV: {c}")
+
+    # Coerce numeric
+    for c in NUMERIC_COLS:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0).astype(float)
+        else:
+            raise ValueError(f"Expected numeric column missing: {c}")
+
+    # Final column order for X
+    feature_order = NUMERIC_COLS + BINARY_COLS
+    X = df[feature_order].copy()
+    y = df[TARGET].astype(int).copy()
+    return X, y, feature_order
+
+def split_and_scale(X, y):
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    scaler = StandardScaler()
+    Xtr.loc[:, NUMERIC_COLS] = scaler.fit_transform(Xtr[NUMERIC_COLS].astype(float))
+    Xte.loc[:, NUMERIC_COLS] = scaler.transform(Xte[NUMERIC_COLS].astype(float))
+    return Xtr, Xte, ytr, yte, scaler
+
+def train_calibrated_xgb(Xtr, ytr):
+    # handle imbalance
+    pos = int(ytr.sum())
+    neg = int(len(ytr) - pos)
+    spw = (neg / max(pos,1)) if pos else 1.0
+
+    xgb = XGBClassifier(
+        n_estimators=600,
+        learning_rate=0.05,
+        max_depth=4,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        reg_lambda=1.0,
+        objective="binary:logistic",
+        eval_metric="logloss",
+        n_jobs=-1,
+        random_state=42,
+        scale_pos_weight=spw,
+        # (optional) add monotone constraints if you want strictly increasing on key risks
+        # monotone_constraints="(1,1,0,1,1,1,1,1,1)",
+    )
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    clf = CalibratedClassifierCV(estimator=xgb, method="isotonic", cv=skf)
+    clf.fit(Xtr, ytr)
+    return clf
