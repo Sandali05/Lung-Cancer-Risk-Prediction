@@ -53,3 +53,14 @@ BINARY_COLS  = [
     "family_history",
 ]
 TARGET = "lung_cancer"
+
+# 0/1 meanings that we want to enforce across train + serve
+BINARY_MEANING = {
+    "gender": "0=female, 1=male",
+    "radon_exposure": "0=no, 1=yes",
+    "asbestos_exposure": "0=no, 1=yes",
+    "secondhand_smoke_exposure": "0=no, 1=yes",
+    "copd_diagnosis": "0=no, 1=yes",
+    "alcohol_consumption": "0=no, 1=yes",
+    "family_history": "0=no, 1=yes",
+}
