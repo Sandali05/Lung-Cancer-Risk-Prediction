@@ -80,9 +80,9 @@ def _parse_bin(val):
         return 1 if f >= 0.5 else 0
     except:
         return 0
-    
-    def load_dataframe():
-     if not os.path.exists(CSV_PATH):
+
+def load_dataframe():
+    if not os.path.exists(CSV_PATH):
         raise FileNotFoundError(f"CSV not found at: {CSV_PATH}")
 
     df = pd.read_csv(CSV_PATH)
@@ -193,4 +193,3 @@ if __name__ == "__main__":
     model = train_calibrated_xgb(Xtr, ytr)
     evaluate(model, Xte, yte)
     save_artifacts(scaler, model, feature_order, pi_train)
-
