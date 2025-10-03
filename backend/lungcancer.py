@@ -121,3 +121,29 @@ def split_and_scale(X, y):
     Xte.loc[:, NUMERIC_COLS] = scaler.transform(Xte[NUMERIC_COLS].astype(float))
     return Xtr, Xte, ytr, yte, scaler
 
+def train_calibrated_xgb(Xtr, ytr):
+    # handle imbalance
+    pos = int(ytr.sum())
+    neg = int(len(ytr) - pos)
+    spw = (neg / max(pos,1)) if pos else 1.0
+
+    xgb = XGBClassifier(
+        n_estimators=600,
+        learning_rate=0.05,
+        max_depth=4,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        reg_lambda=1.0,
+        objective="binary:logistic",
+        eval_metric="logloss",
+        n_jobs=-1,
+        random_state=42,
+        scale_pos_weight=spw,
+        # (optional) add monotone constraints if you want strictly increasing on key risks
+        # monotone_constraints="(1,1,0,1,1,1,1,1,1)",
+    )
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    clf = CalibratedClassifierCV(estimator=xgb, method="isotonic", cv=skf)
+    clf.fit(Xtr, ytr)
+    return clf
+
