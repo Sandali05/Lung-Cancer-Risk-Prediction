@@ -109,3 +109,99 @@ def load_dataframe():
                 df[c], errors="coerce").fillna(0.0).astype(float)
         else:
             raise ValueError(f"Expected numeric column missing: {c}")
+
+    # Final column order for X
+    feature_order = NUMERIC_COLS + BINARY_COLS
+    X = df[feature_order].copy()
+    y = df[TARGET].astype(int).copy()
+    return X, y, feature_order
+
+
+def split_and_scale(X, y):
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    scaler = StandardScaler()
+    Xtr.loc[:, NUMERIC_COLS] = scaler.fit_transform(
+        Xtr[NUMERIC_COLS].astype(float))
+    Xte.loc[:, NUMERIC_COLS] = scaler.transform(
+        Xte[NUMERIC_COLS].astype(float))
+    return Xtr, Xte, ytr, yte, scaler
+
+
+def train_calibrated_xgb(Xtr, ytr):
+    # handle imbalance
+    pos = int(ytr.sum())
+    neg = int(len(ytr) - pos)
+    spw = (neg / max(pos, 1)) if pos else 1.0
+
+    xgb = XGBClassifier(
+        n_estimators=600,
+        learning_rate=0.05,
+        max_depth=4,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        reg_lambda=1.0,
+        objective="binary:logistic",
+        eval_metric="logloss",
+        n_jobs=-1,
+        random_state=42,
+        scale_pos_weight=spw,
+        # (optional) add monotone constraints if you want strictly increasing on key risks
+        # monotone_constraints="(1,1,0,1,1,1,1,1,1)",
+    )
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    clf = CalibratedClassifierCV(estimator=xgb, method="isotonic", cv=skf)
+    clf.fit(Xtr, ytr)
+    return clf
+
+
+def evaluate(model, Xte, yte):
+    p = model.predict_proba(Xte)[:, 1]
+    roc = roc_auc_score(yte, p)
+    pr = average_precision_score(yte, p)
+    brier = brier_score_loss(yte, p)
+
+    prec, rec, thr = precision_recall_curve(yte, p)
+    f1s = 2*(prec*rec)/(prec+rec+1e-12)
+    best_idx = int(np.argmax(f1s[:-1])) if len(thr) else 0
+    best_thr = float(thr[best_idx]) if len(thr) else 0.5
+    best_f1 = float(f1s[best_idx]) if len(f1s) else 0.0
+
+    print(
+        f"Calibrated XGBoost: ROC-AUC={roc:.3f} PR-AUC={pr:.3f} Brier={brier:.3f} BestF1={best_f1:.3f} @ thr={best_thr:.3f}")
+    return roc, pr, brier, best_f1, best_thr
+
+
+def save_artifacts(scaler, model, feature_order, pi_train: float):
+    joblib.dump(scaler, SCALER_PATH)
+    joblib.dump(model, MODEL_PATH)
+
+    meta = {
+        "pi_train": float(pi_train),
+        "feature_order": feature_order,
+        "numeric_cols": NUMERIC_COLS,
+        "binary_cols": BINARY_COLS,
+        "binary_meaning": BINARY_MEANING,
+        "target": TARGET,
+        "calibration_method": "isotonic",
+        "model_family": "XGBoost",
+        "versions": {"scikit_learn": sklearn.__version__, "xgboost": xgboost.__version__},
+        "csv_path_used": CSV_PATH,
+    }
+    with open(META_PATH, "w") as f:
+        json.dump(meta, f, indent=2)
+
+    print(f"✅ Saved: {SCALER_PATH}")
+    print(f"✅ Saved: {MODEL_PATH}")
+    print(f"✅ Saved: {META_PATH}")
+
+
+if __name__ == "__main__":
+    X, y, feature_order = load_dataframe()
+    pi_train = float(y.mean())
+    print(f"Training prevalence (pi_train): {pi_train:.4f}")
+    Xtr, Xte, ytr, yte, scaler = split_and_scale(X, y)
+    model = train_calibrated_xgb(Xtr, ytr)
+    evaluate(model, Xte, yte)
+    save_artifacts(scaler, model, feature_order, pi_train)
