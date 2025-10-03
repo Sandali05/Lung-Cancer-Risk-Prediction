@@ -14,24 +14,22 @@ Optionally set a CSV via env:
   macOS/Linux: export LUNG_CANCER_CSV=/path/to/lung_cancer_dataset.csv
 """
 
-import xgboost
-import sklearn
-from xgboost import XGBClassifier
+import os, json, warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
+import joblib
+import numpy as np
+import pandas as pd
+
+from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.preprocessing import StandardScaler
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     roc_auc_score, average_precision_score, brier_score_loss,
     precision_recall_curve
 )
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split, StratifiedKFold
-import pandas as pd
-import numpy as np
-import joblib
-import os
-import json
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
-
+from xgboost import XGBClassifier
+import sklearn, xgboost
 
 # ----- Paths -----
 BASE_DIR = os.path.dirname(__file__)
@@ -40,12 +38,12 @@ CSV_PATH = os.getenv(
     r"E:/3rd_YR_2nd_SEM/FDM/mini-project/LungCancer_predication/lung_cancer_dataset.csv"
 )
 SCALER_PATH = os.path.join(BASE_DIR, "scaler.pkl")
-MODEL_PATH = os.path.join(BASE_DIR, "model.pkl")
-META_PATH = os.path.join(BASE_DIR, "meta.json")
+MODEL_PATH  = os.path.join(BASE_DIR, "model.pkl")
+META_PATH   = os.path.join(BASE_DIR, "meta.json")
 
 # ----- Columns (and explicit binary meanings) -----
 NUMERIC_COLS = ["age", "pack_years"]
-BINARY_COLS = [
+BINARY_COLS  = [
     "gender",
     "radon_exposure",
     "asbestos_exposure",
@@ -67,15 +65,14 @@ BINARY_MEANING = {
     "family_history": "0=no, 1=yes",
 }
 
-
 def _parse_bin(val):
     """Coerce common yes/no forms to 0/1. Unknown → 0."""
     if val is None:
         return 0
     s = str(val).strip().lower()
-    if s in {"1", "y", "yes", "true", "t"}:
+    if s in {"1","y","yes","true","t"}:
         return 1
-    if s in {"0", "n", "no", "false", "f"}:
+    if s in {"0","n","no","false","f"}:
         return 0
     # numeric?
     try:
@@ -83,7 +80,6 @@ def _parse_bin(val):
         return 1 if f >= 0.5 else 0
     except:
         return 0
-
 
 def load_dataframe():
     if not os.path.exists(CSV_PATH):
@@ -106,8 +102,7 @@ def load_dataframe():
     # Coerce numeric
     for c in NUMERIC_COLS:
         if c in df.columns:
-            df[c] = pd.to_numeric(
-                df[c], errors="coerce").fillna(0.0).astype(float)
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0).astype(float)
         else:
             raise ValueError(f"Expected numeric column missing: {c}")
 
@@ -117,24 +112,20 @@ def load_dataframe():
     y = df[TARGET].astype(int).copy()
     return X, y, feature_order
 
-
 def split_and_scale(X, y):
     Xtr, Xte, ytr, yte = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
     scaler = StandardScaler()
-    Xtr.loc[:, NUMERIC_COLS] = scaler.fit_transform(
-        Xtr[NUMERIC_COLS].astype(float))
-    Xte.loc[:, NUMERIC_COLS] = scaler.transform(
-        Xte[NUMERIC_COLS].astype(float))
+    Xtr.loc[:, NUMERIC_COLS] = scaler.fit_transform(Xtr[NUMERIC_COLS].astype(float))
+    Xte.loc[:, NUMERIC_COLS] = scaler.transform(Xte[NUMERIC_COLS].astype(float))
     return Xtr, Xte, ytr, yte, scaler
-
 
 def train_calibrated_xgb(Xtr, ytr):
     # handle imbalance
     pos = int(ytr.sum())
     neg = int(len(ytr) - pos)
-    spw = (neg / max(pos, 1)) if pos else 1.0
+    spw = (neg / max(pos,1)) if pos else 1.0
 
     xgb = XGBClassifier(
         n_estimators=600,
@@ -156,11 +147,10 @@ def train_calibrated_xgb(Xtr, ytr):
     clf.fit(Xtr, ytr)
     return clf
 
-
 def evaluate(model, Xte, yte):
-    p = model.predict_proba(Xte)[:, 1]
+    p = model.predict_proba(Xte)[:,1]
     roc = roc_auc_score(yte, p)
-    pr = average_precision_score(yte, p)
+    pr  = average_precision_score(yte, p)
     brier = brier_score_loss(yte, p)
 
     prec, rec, thr = precision_recall_curve(yte, p)
@@ -169,10 +159,8 @@ def evaluate(model, Xte, yte):
     best_thr = float(thr[best_idx]) if len(thr) else 0.5
     best_f1 = float(f1s[best_idx]) if len(f1s) else 0.0
 
-    print(
-        f"Calibrated XGBoost: ROC-AUC={roc:.3f} PR-AUC={pr:.3f} Brier={brier:.3f} BestF1={best_f1:.3f} @ thr={best_thr:.3f}")
+    print(f"Calibrated XGBoost: ROC-AUC={roc:.3f} PR-AUC={pr:.3f} Brier={brier:.3f} BestF1={best_f1:.3f} @ thr={best_thr:.3f}")
     return roc, pr, brier, best_f1, best_thr
-
 
 def save_artifacts(scaler, model, feature_order, pi_train: float):
     joblib.dump(scaler, SCALER_PATH)
@@ -196,7 +184,6 @@ def save_artifacts(scaler, model, feature_order, pi_train: float):
     print(f"✅ Saved: {SCALER_PATH}")
     print(f"✅ Saved: {MODEL_PATH}")
     print(f"✅ Saved: {META_PATH}")
-
 
 if __name__ == "__main__":
     X, y, feature_order = load_dataframe()
