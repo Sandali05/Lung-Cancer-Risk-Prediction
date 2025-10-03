@@ -158,3 +158,38 @@ def evaluate(model, Xte, yte):
     best_idx = int(np.argmax(f1s[:-1])) if len(thr) else 0
     best_thr = float(thr[best_idx]) if len(thr) else 0.5
     best_f1 = float(f1s[best_idx]) if len(f1s) else 0.0
+
+    print(f"Calibrated XGBoost: ROC-AUC={roc:.3f} PR-AUC={pr:.3f} Brier={brier:.3f} BestF1={best_f1:.3f} @ thr={best_thr:.3f}")
+    return roc, pr, brier, best_f1, best_thr
+
+def save_artifacts(scaler, model, feature_order, pi_train: float):
+    joblib.dump(scaler, SCALER_PATH)
+    joblib.dump(model, MODEL_PATH)
+
+    meta = {
+        "pi_train": float(pi_train),
+        "feature_order": feature_order,
+        "numeric_cols": NUMERIC_COLS,
+        "binary_cols": BINARY_COLS,
+        "binary_meaning": BINARY_MEANING,
+        "target": TARGET,
+        "calibration_method": "isotonic",
+        "model_family": "XGBoost",
+        "versions": {"scikit_learn": sklearn.__version__, "xgboost": xgboost.__version__},
+        "csv_path_used": CSV_PATH,
+    }
+    with open(META_PATH, "w") as f:
+        json.dump(meta, f, indent=2)
+
+    print(f"✅ Saved: {SCALER_PATH}")
+    print(f"✅ Saved: {MODEL_PATH}")
+    print(f"✅ Saved: {META_PATH}")
+
+if __name__ == "__main__":
+    X, y, feature_order = load_dataframe()
+    pi_train = float(y.mean())
+    print(f"Training prevalence (pi_train): {pi_train:.4f}")
+    Xtr, Xte, ytr, yte, scaler = split_and_scale(X, y)
+    model = train_calibrated_xgb(Xtr, ytr)
+    evaluate(model, Xte, yte)
+    save_artifacts(scaler, model, feature_order, pi_train)
