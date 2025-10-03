@@ -111,3 +111,13 @@ def load_dataframe():
     X = df[feature_order].copy()
     y = df[TARGET].astype(int).copy()
     return X, y, feature_order
+    
+def split_and_scale(X, y):
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    scaler = StandardScaler()
+    Xtr.loc[:, NUMERIC_COLS] = scaler.fit_transform(Xtr[NUMERIC_COLS].astype(float))
+    Xte.loc[:, NUMERIC_COLS] = scaler.transform(Xte[NUMERIC_COLS].astype(float))
+    return Xtr, Xte, ytr, yte, scaler
+
