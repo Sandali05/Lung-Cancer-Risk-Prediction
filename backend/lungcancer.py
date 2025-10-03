@@ -147,3 +147,14 @@ def train_calibrated_xgb(Xtr, ytr):
     clf.fit(Xtr, ytr)
     return clf
 
+def evaluate(model, Xte, yte):
+    p = model.predict_proba(Xte)[:,1]
+    roc = roc_auc_score(yte, p)
+    pr  = average_precision_score(yte, p)
+    brier = brier_score_loss(yte, p)
+
+    prec, rec, thr = precision_recall_curve(yte, p)
+    f1s = 2*(prec*rec)/(prec+rec+1e-12)
+    best_idx = int(np.argmax(f1s[:-1])) if len(thr) else 0
+    best_thr = float(thr[best_idx]) if len(thr) else 0.5
+    best_f1 = float(f1s[best_idx]) if len(f1s) else 0.0
