@@ -87,7 +87,7 @@ def load_dataframe():
 
     df = pd.read_csv(CSV_PATH)
 
-     # Drop identifiers if present
+    # Drop identifiers if present
     for col in ["patient_id", "id", "uuid"]:
         if col in df.columns:
             df = df.drop(columns=[col])
@@ -111,7 +111,7 @@ def load_dataframe():
     X = df[feature_order].copy()
     y = df[TARGET].astype(int).copy()
     return X, y, feature_order
-    
+
 def split_and_scale(X, y):
     Xtr, Xte, ytr, yte = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
