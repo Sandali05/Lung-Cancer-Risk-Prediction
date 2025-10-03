@@ -82,7 +82,7 @@ def _parse_bin(val):
         return 0
     
     def load_dataframe():
-    if not os.path.exists(CSV_PATH):
+     if not os.path.exists(CSV_PATH):
         raise FileNotFoundError(f"CSV not found at: {CSV_PATH}")
 
     df = pd.read_csv(CSV_PATH)
