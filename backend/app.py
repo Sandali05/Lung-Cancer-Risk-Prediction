@@ -79,8 +79,8 @@ def parse_yesno(v: Any) -> int:
     if v is None: return 0
     if isinstance(v, bool): return 1 if v else 0
     s = str(v).strip().lower()
-    if s in {"1","y","Yes","true","t"}: return 1
-    if s in {"0","n","No","false","f"}: return 0
+    if s in {"1","y","yes","true","t"}: return 1
+    if s in {"0","n","no","false","f"}: return 0
     try:
         return 1 if float(s) >= 0.5 else 0
     except:
@@ -88,23 +88,23 @@ def parse_yesno(v: Any) -> int:
 
 def parse_gender(v: Any) -> int:
     s = str(v).strip().lower()
-    if s in {"Male","m","1"}:   return 1
-    if s in {"Female","f","0"}: return 0
+    if s in {"male","m","1"}:   return 1
+    if s in {"female","f","0"}: return 0
     return parse_yesno(v)
 
 def norm_radon(v: Any) -> str:
     s = str(v).strip().lower()
-    if s in {"Low","l"}: return "Low"
-    if s in {"Medium","med","Mid","m"}: return "Medium"
-    if s in {"High","h"}: return "High"
-    if s in {"None","no","0","nil","null","n/a","na",""}: return "Low"  # 3-bucket scheme
+    if s in {"low","l"}: return "low"
+    if s in {"medium","med","mid","m"}: return "medium"
+    if s in {"high","h"}: return "high"
+    if s in {"none","no","0","nil","null","n/a","na",""}: return "low"  # 3-bucket scheme
     return "Low"
 
 def norm_alcohol(v: Any) -> str:
     s = str(v).strip().lower()
-    if s in {"None","no","0","nil","null","n/a","na",""}: return "None"
-    if s in {"Moderate","mod","Medium","light","low"}:    return "Moderate"
-    if s in {"Heavy","High","yes","1"}:                   return "Heavy"
+    if s in {"none","no","0","nil","null","n/a","na",""}: return "none"
+    if s in {"moderate","mod","medium","light","low"}:    return "moderate"
+    if s in {"heavy","high","yes","1"}:                   return "heavy"
     return "none"
 
 def parse_float(val: Any, default: float = 0.0) -> float:
