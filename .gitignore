@@ -8,8 +8,5 @@
 
 # builds & artifacts
 *.pkl
-scaler.pkl
-model.pkl
-meta.json
 lung_cancer_dataset.csv
 __pycache__/
