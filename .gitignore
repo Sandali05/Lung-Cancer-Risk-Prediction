@@ -7,6 +7,5 @@
 **/.next/
 
 # builds & artifacts
-*.pkl
 lung_cancer_dataset.csv
 __pycache__/
