@@ -247,7 +247,7 @@ def load_dataframe():
         columns=[f"radon_{lvl}" for lvl in RADON_LEVELS], fill_value=0
     )
     alcohol_oh = pd.get_dummies(df["alcohol_norm"], prefix="alcohol", dtype=int).reindex(
-        columns=[f"alcohol_{lvl}" for lvl i n ALCOHOL_LEVELS], fill_value=0
+        columns=[f"alcohol_{lvl}" for lvl in ALCOHOL_LEVELS], fill_value=0
     )
 
     one_hot_cols = list(radon_oh.columns) + list(alcohol_oh.columns)
