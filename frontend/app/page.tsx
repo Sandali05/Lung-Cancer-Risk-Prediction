@@ -1,32 +1,20 @@
 "use client";
 import React, { useEffect, useState } from "react";
 
-const normalizeBase = (base: string): string => base.replace(/\/$/, "");
-
-const ENV_API_BASE = process.env.NEXT_PUBLIC_API_BASE?.trim();
-
-const getApiBase = (): string => {
-  if (ENV_API_BASE) {
-    return normalizeBase(ENV_API_BASE);
-  }
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return normalizeBase(window.location.origin);
-  }
-  return "http://127.0.0.1:8000";
-};
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
 
 const fetchJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
-  const apiBase = getApiBase();
   let response: Response;
   try {
-    response = await fetch(`${apiBase}${path}`, init);
+    response = await fetch(`${API_BASE}${path}`, init);
   } catch (error) {
     if (error instanceof TypeError) {
       const hint =
-        apiBase.includes("127.0.0.1") || apiBase.includes("localhost")
-          ? "Set NEXT_PUBLIC_API_BASE to your deployed backend URL."
+        const hint = API_BASE.includes("127.0.0.1") || API_BASE.includes("localhost")
+        ? "Set NEXT_PUBLIC_API_BASE to your deployed backend URL."
         : "Verify that NEXT_PUBLIC_API_BASE points at a reachable backend.";
-      throw new Error(`Unable to reach the backend at ${apiBase}. ${hint}`);
+      throw new Error(
+        `Unable to reach the backend at ${API_BASE}. ${hint}`
     }
     throw error;
   }
