@@ -1,7 +1,10 @@
 "use client";
+
 import React, { useEffect, useState } from "react";
+import styles from "./page.module.css";
 
 const API_STORAGE_KEY = "lung-cancer-api-base";
+const FALLBACK_PI_TRAIN = 0.68728;
 
 const sanitizeBase = (value: string): string => value.trim().replace(/\/+$/, "");
 
@@ -48,6 +51,7 @@ type PredictResponse = {
   pi_train?: number | null;
   pi_deploy?: number | null;
   inputs_used?: Record<string, string | number | boolean | null>;
+  fallback?: boolean;
 };
 
 type ModelInfo = {
@@ -61,11 +65,13 @@ type ModelInfo = {
   pi_deploy?: number | null;
 };
 
+type StatusTone = "error" | "warning" | "success";
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-white p-3 shadow">
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
+    <div className={styles.statCard}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -131,8 +137,71 @@ const describeError = (error: unknown): string => {
   return typeof error === "string" ? error : networkHelp;
 };
 
+const logistic = (score: number): number => 1 / (1 + Math.exp(-score));
+
+const priorAdjust = (p: number, piTrain: number, piDeploy: number): number => {
+  const clamped = Math.min(Math.max(p, 1e-6), 1 - 1e-6);
+  if (!(piTrain > 0 && piTrain < 1 && piDeploy > 0 && piDeploy < 1)) {
+    return clamped;
+  }
+  const odds = clamped / (1 - clamped);
+  const adjust = (piDeploy / (1 - piDeploy)) / (piTrain / (1 - piTrain));
+  return Math.min(Math.max((odds * adjust) / (1 + odds * adjust), 1e-6), 1 - 1e-6);
+};
+
+const yesNoBonus = (value: YesNo, weight: number): number => (value === "yes" ? weight : 0);
+
+const fallbackPredict = (inputs: UiInputs, baselinePct?: number): PredictResponse => {
+  const age = toNumber(inputs.AGE);
+  const packs = toNumber(inputs.PACK_YEARS);
+
+  let score = -1.45;
+  score += (age - 55) * 0.035;
+  score += packs * 0.022;
+  score += inputs.GENDER === 1 ? 0.22 : -0.04;
+  score += yesNoBonus(inputs.ASBESTOS_EXPOSURE, 0.28);
+  score += yesNoBonus(inputs.SECONDHAND_SMOKE_EXPOSURE, 0.18);
+  score += yesNoBonus(inputs.COPD_DIAGNOSIS, 0.32);
+  score += yesNoBonus(inputs.FAMILY_HISTORY, 0.24);
+
+  if (inputs.RADON_EXPOSURE === "medium") score += 0.18;
+  if (inputs.RADON_EXPOSURE === "high") score += 0.36;
+  if (inputs.ALCOHOL_CONSUMPTION === "moderate") score += 0.08;
+  if (inputs.ALCOHOL_CONSUMPTION === "heavy") score += 0.18;
+
+  const raw = logistic(score);
+  const piDeploy = baselinePct != null ? Math.max(Math.min(baselinePct / 100, 0.99), 0.01) : undefined;
+  const adjusted = piDeploy ? priorAdjust(raw, FALLBACK_PI_TRAIN, piDeploy) : null;
+  const main = adjusted ?? raw;
+
+  return {
+    model: "Heuristic fallback (client-side)",
+    risk_percentage: Number((main * 100).toFixed(2)),
+    raw_risk_percentage: Number((raw * 100).toFixed(2)),
+    adjusted_risk_percentage: adjusted != null ? Number((adjusted * 100).toFixed(2)) : null,
+    adjusted_for_prevalence: adjusted != null,
+    pi_train: FALLBACK_PI_TRAIN,
+    pi_deploy: piDeploy ?? null,
+    inputs_used: {
+      age,
+      pack_years: packs,
+      gender: inputs.GENDER,
+      radon_exposure: inputs.RADON_EXPOSURE,
+      alcohol_consumption: inputs.ALCOHOL_CONSUMPTION,
+      asbestos_exposure: inputs.ASBESTOS_EXPOSURE,
+      secondhand_smoke_exposure: inputs.SECONDHAND_SMOKE_EXPOSURE,
+      copd_diagnosis: inputs.COPD_DIAGNOSIS,
+      family_history: inputs.FAMILY_HISTORY,
+    },
+    fallback: true,
+  };
+};
+
 const binaryFields: Array<[
-  keyof Pick<UiInputs, "ASBESTOS_EXPOSURE" | "SECONDHAND_SMOKE_EXPOSURE" | "COPD_DIAGNOSIS" | "FAMILY_HISTORY">,
+  keyof Pick<
+    UiInputs,
+    "ASBESTOS_EXPOSURE" | "SECONDHAND_SMOKE_EXPOSURE" | "COPD_DIAGNOSIS" | "FAMILY_HISTORY"
+  >,
   string
 ]> = [
   ["ASBESTOS_EXPOSURE", "Asbestos exposure"],
@@ -158,7 +227,8 @@ export default function Page() {
   const [baseline, setBaseline] = useState<number>(50);
   const [pct, setPct] = useState<string>("—");
   const [details, setDetails] = useState<PredictResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusTone, setStatusTone] = useState<StatusTone | null>(null);
   const [loading, setLoading] = useState(false);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
   const [apiBase, setApiBase] = useState<string>(initialBase);
@@ -166,6 +236,7 @@ export default function Page() {
   const [checkingApi, setCheckingApi] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
+  const [usedFallback, setUsedFallback] = useState(false);
 
   useEffect(() => {
     if (initialBase) {
@@ -261,25 +332,36 @@ export default function Page() {
     setJustSaved(false);
   };
 
+  const runFallback = (message: string) => {
+    const fallback = fallbackPredict(inputs, baseline);
+    setPct(`${fallback.risk_percentage.toFixed(1)}%`);
+    setDetails(fallback);
+    setStatusTone("warning");
+    setStatusMessage(message);
+    setUsedFallback(true);
+  };
+
   const onPredict = async () => {
+    setStatusMessage(null);
+    setStatusTone(null);
+    setLoading(true);
+    setUsedFallback(false);
+
     if (!apiBase) {
-      setError("Set the API base URL in the API Connection panel before predicting.");
-      setDetails(null);
-      setPct("—");
+      runFallback("No API URL configured. Showing the built-in heuristic estimate only.");
+      setLoading(false);
       return;
     }
 
-    setError(null);
-    setLoading(true);
     try {
       const data = await fetchPredict(apiBase, inputs, baseline);
       const main = Number(data.risk_percentage) || 0;
       setPct(`${main.toFixed(1)}%`);
-      setDetails(data);
+      setDetails({ ...data, fallback: false });
+      setStatusTone("success");
+      setStatusMessage("Prediction received from the FastAPI backend.");
     } catch (err) {
-      setError(describeError(err));
-      setPct("—");
-      setDetails(null);
+      runFallback(`${describeError(err)} Using the built-in heuristic instead.`);
     } finally {
       setLoading(false);
     }
@@ -287,232 +369,225 @@ export default function Page() {
 
   const barWidth = pct.endsWith("%") ? pct : "0%";
   const hasApiBase = apiBase.length > 0;
-  const predictDisabled = loading || !hasApiBase;
   const currentApiLabel = hasApiBase ? apiBase : "Not configured";
   const sanitizedInput = sanitizeBase(apiInput);
   const canSaveApi = sanitizedInput !== apiBase;
 
+  const statusClass =
+    statusTone === "error"
+      ? `${styles.status} ${styles.statusError}`
+      : statusTone === "warning"
+        ? `${styles.status} ${styles.statusWarning}`
+        : statusTone === "success"
+          ? `${styles.status} ${styles.statusSuccess}`
+          : null;
+
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <div className="mx-auto max-w-5xl p-6">
-        <header className="mb-6 flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Lung Cancer Risk Predictor</h1>
-            <p className="mt-1 text-gray-600">
+    <div className={styles.page}>
+      <div className={styles.wrapper}>
+        <header className={styles.header}>
+          <div className={styles.titleBlock}>
+            <h1>Lung Cancer Risk Predictor</h1>
+            <p>
               Enter patient factors to estimate the model&apos;s predicted probability of lung cancer.
-              <span className="ml-2 text-xs text-gray-500">(Prototype; not medical advice)</span>
+              <span>(Prototype; not medical advice)</span>
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Stat label="AUC (test)" value={"0.737"} />
-            <Stat label="Accuracy (test)" value={"0.840"} />
+          <div className={styles.statGrid}>
+            <Stat label="AUC (test)" value="0.737" />
+            <Stat label="Accuracy (test)" value="0.840" />
           </div>
         </header>
 
-        <main className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <section className="md:col-span-2 space-y-6">
-            <div className="rounded-2xl bg-white p-6 shadow">
-              <h2 className="mb-4 text-xl font-semibold">Demographics & Exposure</h2>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Gender (0=female, 1=male)</label>
-                  <input
-                    type="number"
-                    className="w-full rounded-xl border px-3 py-2"
-                    value={inputs.GENDER}
-                    min={0}
-                    max={1}
-                    step={1}
-                    onChange={(event) => onChange("GENDER", toBinary(event.target.value))}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Radon Exposure</label>
-                  <select
-                    className="w-full rounded-xl border px-3 py-2"
-                    value={inputs.RADON_EXPOSURE}
-                    onChange={(event) => onChange("RADON_EXPOSURE", event.target.value as RadonLevel)}
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Alcohol Consumption</label>
-                  <select
-                    className="w-full rounded-xl border px-3 py-2"
-                    value={inputs.ALCOHOL_CONSUMPTION}
-                    onChange={(event) => onChange("ALCOHOL_CONSUMPTION", event.target.value as AlcoholLevel)}
-                  >
-                    <option value="none">None</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="heavy">Heavy</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Age (years)</label>
-                  <input
-                    type="number"
-                    className="w-full rounded-xl border px-3 py-2"
-                    value={inputs.AGE}
-                    min={0}
-                    onChange={(event) => onChange("AGE", toNumber(event.target.value))}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium">Pack-years (smoking)</label>
-                  <input
-                    type="number"
-                    className="w-full rounded-xl border px-3 py-2"
-                    value={inputs.PACK_YEARS}
-                    min={0}
-                    onChange={(event) => onChange("PACK_YEARS", toNumber(event.target.value))}
-                  />
-                </div>
-
-                {binaryFields.map(([key, label]) => (
-                  <div key={key}>
-                    <label className="mb-1 block text-sm font-medium">{label}</label>
-                    <select
-                      className="w-full rounded-xl border px-3 py-2"
-                      value={inputs[key]}
-                      onChange={(event) => onChange(key, event.target.value as YesNo)}
-                    >
-                      <option value="no">No</option>
-                      <option value="yes">Yes</option>
-                    </select>
-                  </div>
-                ))}
+        <main className={styles.mainContent}>
+          <section className={styles.card}>
+            <h2 className={styles.sectionTitle}>Demographics &amp; Exposure</h2>
+            <div className={styles.formGrid}>
+              <div>
+                <label className={styles.label}>Gender (0=female, 1=male)</label>
+                <input
+                  type="number"
+                  className={styles.input}
+                  value={inputs.GENDER}
+                  min={0}
+                  max={1}
+                  step={1}
+                  onChange={(event) => onChange("GENDER", toBinary(event.target.value))}
+                />
               </div>
+
+              <div>
+                <label className={styles.label}>Radon Exposure</label>
+                <select
+                  className={styles.select}
+                  value={inputs.RADON_EXPOSURE}
+                  onChange={(event) => onChange("RADON_EXPOSURE", event.target.value as RadonLevel)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={styles.label}>Alcohol Consumption</label>
+                <select
+                  className={styles.select}
+                  value={inputs.ALCOHOL_CONSUMPTION}
+                  onChange={(event) => onChange("ALCOHOL_CONSUMPTION", event.target.value as AlcoholLevel)}
+                >
+                  <option value="none">None</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="heavy">Heavy</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={styles.label}>Age (years)</label>
+                <input
+                  type="number"
+                  className={styles.input}
+                  value={inputs.AGE}
+                  min={0}
+                  onChange={(event) => onChange("AGE", toNumber(event.target.value))}
+                />
+              </div>
+
+              <div>
+                <label className={styles.label}>Pack-years (smoking)</label>
+                <input
+                  type="number"
+                  className={styles.input}
+                  value={inputs.PACK_YEARS}
+                  min={0}
+                  onChange={(event) => onChange("PACK_YEARS", toNumber(event.target.value))}
+                />
+              </div>
+
+              {binaryFields.map(([key, label]) => (
+                <div key={key} className={styles.binaryGroup}>
+                  <label className={styles.label}>{label}</label>
+                  <select
+                    className={styles.select}
+                    value={inputs[key]}
+                    onChange={(event) => onChange(key, event.target.value as YesNo)}
+                  >
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </div>
+              ))}
             </div>
 
-            <div className="rounded-2xl bg-white p-6 shadow">
-              <h2 className="mb-4 text-xl font-semibold">Model Details</h2>
-              <p className="text-sm text-gray-600">
-                This <b>calibrated XGBoost</b> backend returns a probability. Age &amp; pack-years are standardized
-                on the server; categories like Radon and Alcohol are parsed as text and one-hot encoded server-side.
+            <div className={styles.card} style={{ marginTop: 24 }}>
+              <h2 className={styles.sectionTitle}>Model Details</h2>
+              <p className={styles.helperText}>
+                This calibrated XGBoost backend returns a probability. Age &amp; pack-years are standardized on the server;
+                categories like Radon and Alcohol are parsed as text and one-hot encoded server-side.
               </p>
               {modelInfo && (
-                <details className="mt-3">
-                  <summary className="cursor-pointer text-sm text-gray-700">See feature order</summary>
-                  <div className="mt-2 text-xs text-gray-600">
-                    {modelInfo.feature_order?.join(", ")}
-                  </div>
+                <details className={styles.details}>
+                  <summary>See feature order</summary>
+                  <div className={styles.metaList}>{modelInfo.feature_order?.join(", ")}</div>
                 </details>
               )}
             </div>
           </section>
 
-          <aside className="md:col-span-1">
-            <div className="sticky top-6 space-y-6">
-              <div className="rounded-2xl bg-white p-6 shadow">
-                <h2 className="mb-2 text-xl font-semibold">Predicted Risk</h2>
-                <div className="mb-2 flex items-center gap-2">
+          <aside>
+            <div className={styles.sidebarStack}>
+              <div className={styles.card}>
+                <h2 className={styles.sectionTitle}>Predicted Risk</h2>
+                <div className={styles.badgeRow}>
                   {details?.adjusted_for_prevalence ? (
-                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
+                    <span className={styles.badgePositive}>
                       Adjusted to π<sub>deploy</sub>
                       {details?.pi_deploy != null ? ` = ${(details.pi_deploy * 100).toFixed(2)}%` : ""}
                     </span>
                   ) : (
-                    <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700">
-                      Using training prior (raw)
-                    </span>
+                    <span className={styles.badgeWarning}>Using training prior (raw)</span>
                   )}
                 </div>
 
-                <div className="mb-4 text-5xl font-bold">{pct}</div>
+                <div className={styles.percentDisplay}>{pct}</div>
                 {details && (
-                  <div className="mb-3 space-y-1 text-xs text-gray-600">
+                  <div className={styles.percentBreakdown}>
                     {details.raw_risk_percentage != null && (
-                      <div>
-                        Raw (training prior): <b>{details.raw_risk_percentage.toFixed(2)}%</b>
-                      </div>
+                      <div>Raw (training prior): <b>{details.raw_risk_percentage.toFixed(2)}%</b></div>
                     )}
                     {details.adjusted_risk_percentage != null && (
-                      <div>
-                        Adjusted: <b>{details.adjusted_risk_percentage.toFixed(2)}%</b>
-                      </div>
+                      <div>Adjusted: <b>{details.adjusted_risk_percentage.toFixed(2)}%</b></div>
                     )}
                     {details.pi_train != null && (
-                      <div>
-                        π<sub>train</sub>: {(details.pi_train * 100).toFixed(2)}%
-                      </div>
+                      <div>π<sub>train</sub>: {(details.pi_train * 100).toFixed(2)}%</div>
                     )}
                   </div>
                 )}
 
-                <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-gray-200">
-                  <div className="h-full rounded-full bg-black" style={{ width: barWidth }} />
+                <div className={styles.progressTrack}>
+                  <div className={styles.progressBar} style={{ width: barWidth }} />
                 </div>
 
-                <div className="mt-6">
-                  <label className="mb-1 block text-sm font-medium">
-                    Assumed deployment prevalence (baseline)
-                  </label>
+                <div style={{ marginTop: 24 }}>
+                  <div className={styles.sliderLabel}>
+                    <span>Assumed deployment prevalence (baseline)</span>
+                    <span>{baseline.toFixed(0)}%</span>
+                  </div>
                   <input
                     type="range"
-                    className="w-full"
+                    className={styles.range}
                     min={1}
                     max={70}
                     step={1}
                     value={baseline}
                     onChange={(event) => setBaseline(Number(event.target.value))}
                   />
-                  <div className="mt-1 text-xs text-gray-600">Baseline: {baseline.toFixed(0)}%</div>
 
                   <button
                     onClick={onPredict}
-                    className="mt-4 w-full rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60"
-                    disabled={predictDisabled}
+                    className={styles.buttonPrimary}
+                    disabled={loading}
                   >
-                    {loading ? "Predicting…" : hasApiBase ? "Predict" : "Add API URL"}
+                    {loading ? "Predicting…" : hasApiBase ? "Predict" : "Predict (offline)"}
                   </button>
                 </div>
 
-                {error && (
-                  <div className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-                )}
+                {statusMessage && statusClass && <div className={statusClass}>{statusMessage}</div>}
 
-                {!hasApiBase && (
-                  <div className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Enter the API base URL below to enable predictions.
+                {usedFallback && (
+                  <div className={styles.fallbackBanner}>
+                    The client-side heuristic keeps the experience working without the backend, but connect the FastAPI
+                    service for calibrated probabilities.
                   </div>
                 )}
               </div>
 
-              <div className="rounded-2xl bg-white p-6 shadow">
-                <h2 className="mb-2 text-xl font-semibold">API Connection</h2>
-                <p className="text-xs text-gray-600">
+              <div className={styles.card}>
+                <h2 className={styles.sectionTitle}>API Connection</h2>
+                <p className={styles.helperText}>
                   Provide the base URL to your deployed FastAPI backend. The value is stored locally so future visits reuse it.
                 </p>
                 {initialBase && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    Build default: <code className="rounded bg-gray-100 px-1 py-0.5">{initialBase}</code>
+                  <p className={styles.helperText}>
+                    Build default: <code>{initialBase}</code>
                   </p>
                 )}
 
-                <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  API base URL
-                </label>
+                <label className={styles.apiLabel}>API base URL</label>
                 <input
                   type="url"
-                  className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                  className={`${styles.input} ${styles.apiInput}`}
                   placeholder="https://your-backend.example.com"
                   value={apiInput}
                   onChange={(event) => setApiInput(event.target.value)}
                   autoComplete="off"
                 />
 
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className={styles.actionRow}>
                   <button
                     type="button"
                     onClick={onSaveApiBase}
-                    className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+                    className={styles.buttonSecondary}
                     disabled={!canSaveApi}
                   >
                     Save URL
@@ -520,7 +595,7 @@ export default function Page() {
                   <button
                     type="button"
                     onClick={onResetApiBase}
-                    className="rounded-xl border px-4 py-2 text-sm"
+                    className={styles.buttonGhost}
                     disabled={initialBase === apiBase && apiInput === initialBase}
                   >
                     Reset to build default
@@ -528,41 +603,40 @@ export default function Page() {
                   <button
                     type="button"
                     onClick={onClearApiBase}
-                    className="rounded-xl border px-4 py-2 text-sm"
+                    className={styles.buttonGhost}
                     disabled={!hasApiBase && !apiInput}
                   >
                     Clear
                   </button>
                 </div>
 
-                <p className="mt-3 text-xs text-gray-600">
-                  Current: <span className="font-medium text-gray-800">{currentApiLabel}</span>
+                <p className={styles.apiCurrent}>
+                  Current: <span style={{ fontWeight: 600 }}>{currentApiLabel}</span>
                 </p>
 
-                {checkingApi && (
-                  <p className="mt-3 text-xs text-gray-500">Checking API…</p>
-                )}
+                {checkingApi && <p className={styles.helperText}>Checking API…</p>}
 
                 {modelError && (
-                  <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{modelError}</div>
+                  <div className={`${styles.status} ${styles.statusError}`}>{modelError}</div>
                 )}
 
                 {justSaved && !checkingApi && !modelError && hasApiBase && (
-                  <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                  <div className={`${styles.status} ${styles.statusSuccess}`}>
                     Saved. Metadata will refresh automatically.
                   </div>
                 )}
 
                 {!checkingApi && !modelError && hasApiBase && modelInfo && (
-                  <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                    Model metadata loaded. π<sub>train</sub> =
-                    {modelInfo.pi_train != null ? ` ${(modelInfo.pi_train * 100).toFixed(2)}%` : " n/a"}
+                  <div className={`${styles.status} ${styles.statusSuccess}`}>
+                    Model metadata loaded. π<sub>train</sub>
+                    {modelInfo.pi_train != null ? ` = ${(modelInfo.pi_train * 100).toFixed(2)}%` : " unavailable"}
                   </div>
                 )}
 
                 {!hasApiBase && (
-                  <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Paste the FastAPI deployment URL (for example, from Render or your VM) before exporting the site.
+                  <div className={`${styles.status} ${styles.statusWarning}`}>
+                    Paste the FastAPI deployment URL (for example, from Render or your VM). Without it the heuristic fallback
+                    will be used.
                   </div>
                 )}
               </div>
@@ -570,8 +644,8 @@ export default function Page() {
           </aside>
         </main>
 
-        <footer className="mt-10 text-xs text-gray-500">
-          <p>⚠️ Educational prototype only. Do not use for diagnosis or treatment decisions.</p>
+        <footer className={styles.footer}>
+          ⚠️ Educational prototype only. Do not use for diagnosis or treatment decisions.
         </footer>
       </div>
     </div>

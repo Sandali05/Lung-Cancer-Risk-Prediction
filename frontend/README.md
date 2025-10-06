@@ -86,8 +86,17 @@ exposes an **API Connection** panel that lets you override the API base URL at
 runtime; the value is stored in the browser&apos;s `localStorage` so you can test
 different deployments without rebuilding the site.
 
+If no API URL is configured—or the configured URL is temporarily unreachable—the
+frontend falls back to a lightweight heuristic implemented in the browser. The
+heuristic keeps the static export interactive on GitHub Pages, but it is only an
+approximation of the calibrated XGBoost model. Connect the FastAPI backend for
+the authoritative predictions.
+
 ## Styling notes
-The default layout uses system UI fonts so the Docker image does not require network access for font downloads. Global styles live in [`app/globals.css`](app/globals.css) and the top-level layout is defined in [`app/layout.tsx`](app/layout.tsx).
+The default layout uses a bespoke CSS module (`app/page.module.css`) so the
+static export does not rely on a Tailwind runtime. Global styles live in
+[`app/globals.css`](app/globals.css) and the top-level layout is defined in
+[`app/layout.tsx`](app/layout.tsx).
 
 ## Docker usage
 A multi-stage Dockerfile is provided in [`Dockerfile`](Dockerfile). Build the image with:
