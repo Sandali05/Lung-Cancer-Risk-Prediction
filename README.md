@@ -12,6 +12,10 @@ docker-compose up --build
 
 The backend will be available at <http://localhost:8000> and the frontend at <http://localhost:3000>.
 
+> **Note:** The Dockerfiles accept an `APP_DIR` build argument so they can build either from the repository root (the Render
+> default) or from the individual service directories (what Docker Compose uses). The compose file already sets this argument
+> to `.` for you when building locally.
+
 ## Deploying on Render
 
 Render can deploy the two services defined in this repository. The easiest way is to use the included `render.yaml` blueprint:

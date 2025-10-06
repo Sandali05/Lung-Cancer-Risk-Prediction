@@ -4,6 +4,8 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+ARG APP_DIR=backend
+
 WORKDIR /app
 
 # System dependencies for scientific Python stack
@@ -12,10 +14,10 @@ RUN apt-get update \
         libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
+COPY ${APP_DIR}/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY ${APP_DIR}/ ./
 
 ENV PORT=8000
 
