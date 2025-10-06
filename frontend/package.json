@@ -9,13 +9,6 @@
     "lint": "eslint",
     "test": "npm run lint"
   },
-  {
-  "homepage": "https://sandali05.github.io/Lung-Cancer-Risk-Prediction/",
-  "scripts": {
-    "build": "next build && next export",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d out"
-  },
   "dependencies": {
     "react": "19.1.0",
     "react-dom": "19.1.0",
