@@ -22,6 +22,14 @@ the domain root, which prevents the blank page/404 that otherwise appears on Git
 If you build locally and want to mimic the GitHub Pages output you can set
 `GITHUB_ACTIONS=true GITHUB_REPOSITORY=<owner>/<repo>` before running `npm run build`.
 
+After the static files are generated they need to be served from a branch that
+GitHub Pages watches. The example GitHub Actions workflow publishes the
+contents of the `out/` directory to a `gh-pages` branch, so in the repository
+settings configure **Settings → Pages → Build and deployment** to use the
+`gh-pages` branch and the `/ (root)` folder. Using a separate branch keeps the
+exported artifacts isolated from the application source while still allowing
+Pages to host the site.
+
 ## Styling notes
 The default layout uses system UI fonts so the Docker image does not require network access for font downloads. Global styles live in [`app/globals.css`](app/globals.css) and the top-level layout is defined in [`app/layout.tsx`](app/layout.tsx).
 
