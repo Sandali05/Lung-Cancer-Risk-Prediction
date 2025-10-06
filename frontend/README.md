@@ -81,7 +81,10 @@ NEXT_PUBLIC_API_BASE=https://your-backend.example.com \
 
 When the exported site loads it will call `${NEXT_PUBLIC_API_BASE}/predict` and
 `${NEXT_PUBLIC_API_BASE}/model-info`, so ensure those endpoints are accessible
-from the browser and that CORS is enabled on the backend.
+from the browser and that CORS is enabled on the backend. The deployed UI also
+exposes an **API Connection** panel that lets you override the API base URL at
+runtime; the value is stored in the browser&apos;s `localStorage` so you can test
+different deployments without rebuilding the site.
 
 ## Styling notes
 The default layout uses system UI fonts so the Docker image does not require network access for font downloads. Global styles live in [`app/globals.css`](app/globals.css) and the top-level layout is defined in [`app/layout.tsx`](app/layout.tsx).

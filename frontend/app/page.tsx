@@ -1,7 +1,15 @@
 "use client";
 import React, { useEffect, useState } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+const API_STORAGE_KEY = "lung-cancer-api-base";
+
+const sanitizeBase = (value: string): string => value.trim().replace(/\/+$/, "");
+
+const joinUrl = (base: string, path: string): string => {
+  const sanitized = sanitizeBase(base);
+  if (!sanitized) return path;
+  return `${sanitized}${path}`;
+};
 
 type YesNo = "yes" | "no";
 type RadonLevel = "low" | "medium" | "high";
@@ -85,12 +93,13 @@ const uiToApiPayload = (inputs: UiInputs): PredictPayload => ({
 });
 
 const fetchPredict = async (
+  apiBase: string,
   inputs: UiInputs,
   baselinePct?: number
 ): Promise<PredictResponse> => {
   const payload = uiToApiPayload(inputs);
   const query = baselinePct != null ? `?pi_deploy=${(baselinePct / 100).toFixed(4)}` : "";
-  const response = await fetch(`${API_BASE}/predict${query}`, {
+  const response = await fetch(`${joinUrl(apiBase, "/predict")}${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -101,8 +110,8 @@ const fetchPredict = async (
   return (await response.json()) as PredictResponse;
 };
 
-const fetchModelInfo = async (): Promise<ModelInfo> => {
-  const response = await fetch(`${API_BASE}/model-info`);
+const fetchModelInfo = async (apiBase: string): Promise<ModelInfo> => {
+  const response = await fetch(joinUrl(apiBase, "/model-info"));
   if (!response.ok) {
     throw new Error(`GET /model-info failed: ${response.status}`);
   }
@@ -110,7 +119,7 @@ const fetchModelInfo = async (): Promise<ModelInfo> => {
 };
 
 const networkHelp =
-  "Unable to reach the prediction API. Confirm NEXT_PUBLIC_API_BASE points to your deployed backend.";
+  "Unable to reach the prediction API. Set NEXT_PUBLIC_API_BASE during build or configure the API URL in the API Connection panel.";
 
 const describeError = (error: unknown): string => {
   if (error instanceof TypeError && error.message.toLowerCase().includes("fetch")) {
@@ -133,6 +142,8 @@ const binaryFields: Array<[
 ];
 
 export default function Page() {
+  const envApiBase = process.env.NEXT_PUBLIC_API_BASE?.trim() ?? "";
+  const initialBase = envApiBase ? sanitizeBase(envApiBase) : "";
   const [inputs, setInputs] = useState<UiInputs>({
     GENDER: 1,
     RADON_EXPOSURE: "low",
@@ -150,20 +161,118 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
+  const [apiBase, setApiBase] = useState<string>(initialBase);
+  const [apiInput, setApiInput] = useState<string>(initialBase);
+  const [checkingApi, setCheckingApi] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => {
-    fetchModelInfo().then(setModelInfo).catch(() => {});
-  }, []);
+    if (initialBase) {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(API_STORAGE_KEY, initialBase);
+      }
+      return;
+    }
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(API_STORAGE_KEY);
+    if (stored) {
+      const sanitized = sanitizeBase(stored);
+      setApiBase(sanitized);
+      setApiInput(sanitized);
+    }
+  }, [initialBase]);
+
+  useEffect(() => {
+    if (!apiBase) {
+      setModelInfo(null);
+      setModelError(null);
+      setCheckingApi(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCheckingApi(true);
+    setModelError(null);
+
+    fetchModelInfo(apiBase)
+      .then((info) => {
+        if (cancelled) return;
+        setModelInfo(info);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setModelInfo(null);
+        setModelError(describeError(err));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCheckingApi(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (!justSaved) return;
+    const timer = setTimeout(() => setJustSaved(false), 2500);
+    return () => clearTimeout(timer);
+  }, [justSaved]);
 
   const onChange = <K extends keyof UiInputs>(key: K, value: UiInputs[K]) => {
     setInputs((prev) => ({ ...prev, [key]: value }));
   };
 
+  const onSaveApiBase = () => {
+    const sanitized = sanitizeBase(apiInput);
+    setApiInput(sanitized);
+    setApiBase(sanitized);
+    if (typeof window !== "undefined") {
+      if (sanitized) {
+        window.localStorage.setItem(API_STORAGE_KEY, sanitized);
+      } else {
+        window.localStorage.removeItem(API_STORAGE_KEY);
+      }
+    }
+    setJustSaved(true);
+  };
+
+  const onClearApiBase = () => {
+    setApiInput("");
+    setApiBase("");
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(API_STORAGE_KEY);
+    }
+    setJustSaved(false);
+  };
+
+  const onResetApiBase = () => {
+    setApiInput(initialBase);
+    setApiBase(initialBase);
+    if (typeof window !== "undefined") {
+      if (initialBase) {
+        window.localStorage.setItem(API_STORAGE_KEY, initialBase);
+      } else {
+        window.localStorage.removeItem(API_STORAGE_KEY);
+      }
+    }
+    setJustSaved(false);
+  };
+
   const onPredict = async () => {
+    if (!apiBase) {
+      setError("Set the API base URL in the API Connection panel before predicting.");
+      setDetails(null);
+      setPct("—");
+      return;
+    }
+
     setError(null);
     setLoading(true);
     try {
-      const data = await fetchPredict(inputs, baseline);
+      const data = await fetchPredict(apiBase, inputs, baseline);
       const main = Number(data.risk_percentage) || 0;
       setPct(`${main.toFixed(1)}%`);
       setDetails(data);
@@ -177,6 +286,11 @@ export default function Page() {
   };
 
   const barWidth = pct.endsWith("%") ? pct : "0%";
+  const hasApiBase = apiBase.length > 0;
+  const predictDisabled = loading || !hasApiBase;
+  const currentApiLabel = hasApiBase ? apiBase : "Not configured";
+  const sanitizedInput = sanitizeBase(apiInput);
+  const canSaveApi = sanitizedInput !== apiBase;
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -295,67 +409,163 @@ export default function Page() {
           </section>
 
           <aside className="md:col-span-1">
-            <div className="sticky top-6 rounded-2xl bg-white p-6 shadow">
-              <h2 className="mb-2 text-xl font-semibold">Predicted Risk</h2>
-              <div className="mb-2 flex items-center gap-2">
-                {details?.adjusted_for_prevalence ? (
-                  <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
-                    Adjusted to π<sub>deploy</sub>
-                    {details?.pi_deploy != null ? ` = ${(details.pi_deploy * 100).toFixed(2)}%` : ""}
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700">
-                    Using training prior (raw)
-                  </span>
+            <div className="sticky top-6 space-y-6">
+              <div className="rounded-2xl bg-white p-6 shadow">
+                <h2 className="mb-2 text-xl font-semibold">Predicted Risk</h2>
+                <div className="mb-2 flex items-center gap-2">
+                  {details?.adjusted_for_prevalence ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
+                      Adjusted to π<sub>deploy</sub>
+                      {details?.pi_deploy != null ? ` = ${(details.pi_deploy * 100).toFixed(2)}%` : ""}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700">
+                      Using training prior (raw)
+                    </span>
+                  )}
+                </div>
+
+                <div className="mb-4 text-5xl font-bold">{pct}</div>
+                {details && (
+                  <div className="mb-3 space-y-1 text-xs text-gray-600">
+                    {details.raw_risk_percentage != null && (
+                      <div>
+                        Raw (training prior): <b>{details.raw_risk_percentage.toFixed(2)}%</b>
+                      </div>
+                    )}
+                    {details.adjusted_risk_percentage != null && (
+                      <div>
+                        Adjusted: <b>{details.adjusted_risk_percentage.toFixed(2)}%</b>
+                      </div>
+                    )}
+                    {details.pi_train != null && (
+                      <div>
+                        π<sub>train</sub>: {(details.pi_train * 100).toFixed(2)}%
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-gray-200">
+                  <div className="h-full rounded-full bg-black" style={{ width: barWidth }} />
+                </div>
+
+                <div className="mt-6">
+                  <label className="mb-1 block text-sm font-medium">
+                    Assumed deployment prevalence (baseline)
+                  </label>
+                  <input
+                    type="range"
+                    className="w-full"
+                    min={1}
+                    max={70}
+                    step={1}
+                    value={baseline}
+                    onChange={(event) => setBaseline(Number(event.target.value))}
+                  />
+                  <div className="mt-1 text-xs text-gray-600">Baseline: {baseline.toFixed(0)}%</div>
+
+                  <button
+                    onClick={onPredict}
+                    className="mt-4 w-full rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60"
+                    disabled={predictDisabled}
+                  >
+                    {loading ? "Predicting…" : hasApiBase ? "Predict" : "Add API URL"}
+                  </button>
+                </div>
+
+                {error && (
+                  <div className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+                )}
+
+                {!hasApiBase && (
+                  <div className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    Enter the API base URL below to enable predictions.
+                  </div>
                 )}
               </div>
 
-              <div className="mb-4 text-5xl font-bold">{pct}</div>
-              {details && (
-                <div className="mb-3 text-xs text-gray-600 space-y-1">
-                  {details.raw_risk_percentage != null && (
-                    <div>Raw (training prior): <b>{details.raw_risk_percentage.toFixed(2)}%</b></div>
-                  )}
-                  {details.adjusted_risk_percentage != null && (
-                    <div>Adjusted: <b>{details.adjusted_risk_percentage.toFixed(2)}%</b></div>
-                  )}
-                  {details.pi_train != null && (
-                    <div>π<sub>train</sub>: {(details.pi_train * 100).toFixed(2)}%</div>
-                  )}
-                </div>
-              )}
+              <div className="rounded-2xl bg-white p-6 shadow">
+                <h2 className="mb-2 text-xl font-semibold">API Connection</h2>
+                <p className="text-xs text-gray-600">
+                  Provide the base URL to your deployed FastAPI backend. The value is stored locally so future visits reuse it.
+                </p>
+                {initialBase && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Build default: <code className="rounded bg-gray-100 px-1 py-0.5">{initialBase}</code>
+                  </p>
+                )}
 
-              <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-gray-200">
-                <div className="h-full rounded-full bg-black" style={{ width: barWidth }} />
-              </div>
-
-              <div className="mt-6">
-                <label className="mb-1 block text-sm font-medium">
-                  Assumed deployment prevalence (baseline)
+                <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  API base URL
                 </label>
                 <input
-                  type="range"
-                  className="w-full"
-                  min={1}
-                  max={70}
-                  step={1}
-                  value={baseline}
-                  onChange={(event) => setBaseline(Number(event.target.value))}
+                  type="url"
+                  className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                  placeholder="https://your-backend.example.com"
+                  value={apiInput}
+                  onChange={(event) => setApiInput(event.target.value)}
+                  autoComplete="off"
                 />
-                <div className="mt-1 text-xs text-gray-600">Baseline: {baseline.toFixed(0)}%</div>
 
-                <button
-                  onClick={onPredict}
-                  className="mt-4 w-full rounded-xl bg-black px-4 py-2 text-white disabled:opacity-60"
-                  disabled={loading}
-                >
-                  {loading ? "Predicting…" : "Predict"}
-                </button>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={onSaveApiBase}
+                    className="rounded-xl bg-black px-4 py-2 text-sm text-white disabled:opacity-60"
+                    disabled={!canSaveApi}
+                  >
+                    Save URL
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onResetApiBase}
+                    className="rounded-xl border px-4 py-2 text-sm"
+                    disabled={initialBase === apiBase && apiInput === initialBase}
+                  >
+                    Reset to build default
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClearApiBase}
+                    className="rounded-xl border px-4 py-2 text-sm"
+                    disabled={!hasApiBase && !apiInput}
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <p className="mt-3 text-xs text-gray-600">
+                  Current: <span className="font-medium text-gray-800">{currentApiLabel}</span>
+                </p>
+
+                {checkingApi && (
+                  <p className="mt-3 text-xs text-gray-500">Checking API…</p>
+                )}
+
+                {modelError && (
+                  <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{modelError}</div>
+                )}
+
+                {justSaved && !checkingApi && !modelError && hasApiBase && (
+                  <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                    Saved. Metadata will refresh automatically.
+                  </div>
+                )}
+
+                {!checkingApi && !modelError && hasApiBase && modelInfo && (
+                  <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                    Model metadata loaded. π<sub>train</sub> =
+                    {modelInfo.pi_train != null ? ` ${(modelInfo.pi_train * 100).toFixed(2)}%` : " n/a"}
+                  </div>
+                )}
+
+                {!hasApiBase && (
+                  <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    Paste the FastAPI deployment URL (for example, from Render or your VM) before exporting the site.
+                  </div>
+                )}
               </div>
-
-              {error && (
-                <div className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-              )}
             </div>
           </aside>
         </main>

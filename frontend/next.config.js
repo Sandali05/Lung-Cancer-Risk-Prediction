@@ -24,7 +24,7 @@ const base = normalizeBase(
 const nextConfig = {
   output: "export",
   images: { unoptimized: true },
-  assetPrefix: base ? `${base}/` : undefined,
+  assetPrefix: base ? `${base}/` : "./",
   basePath: base,
   trailingSlash: true,
 };
