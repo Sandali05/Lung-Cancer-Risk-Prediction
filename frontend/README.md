@@ -22,7 +22,9 @@ the domain root, which prevents the blank page/404 that otherwise appears on Git
 If you build locally and want to mimic the GitHub Pages output you can set
 `GITHUB_ACTIONS=true GITHUB_REPOSITORY=<owner>/<repo>` before running `npm run build`.
 As an alternative, set `NEXT_PUBLIC_GITHUB_PAGES_BASE=<repo-name>` to
-explicitly control the exported base path.
+explicitly control the exported base path. The build step automatically writes
+an empty `.nojekyll` file into the export directory so GitHub Pages serves the
+`_next` assets without Jekyll interference.
 
 After the static files are generated they need to be served from a branch that
 GitHub Pages watches. The example GitHub Actions workflow publishes the
@@ -37,7 +39,8 @@ Pages to host the site.
 If you are not using GitHub Actions you can push the exported files yourself:
 
 1. Build the static site with the GitHub Pages environment variables so the
-   correct paths are baked into the export:
+   correct paths are baked into the export (this also drops a `.nojekyll` file
+   into `out/` so the `_next` assets are served as-is):
 
    ```bash
    cd frontend
