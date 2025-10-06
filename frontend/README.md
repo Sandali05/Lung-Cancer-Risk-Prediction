@@ -12,6 +12,10 @@ This directory contains the Next.js frontend for the lung cancer risk prediction
 - `npm start` — run the production build with `next start`
 - `npm test` — run the ESLint suite (alias for `npm run lint`)
 
+By default the build targets the Node runtime so environment variables such as `NEXT_PUBLIC_API_BASE` are read when the server
+starts. If you need a static export for another hosting target, set `NEXT_OUTPUT_MODE=export` before running `npm run build` and
+serve the generated `out/` directory with your preferred static file host.
+
 ## Styling notes
 The default layout uses system UI fonts so the Docker image does not require network access for font downloads. Global styles live in [`app/globals.css`](app/globals.css) and the top-level layout is defined in [`app/layout.tsx`](app/layout.tsx).
 
