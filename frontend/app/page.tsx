@@ -109,11 +109,17 @@ const fetchModelInfo = async (): Promise<ModelInfo> => {
   return (await response.json()) as ModelInfo;
 };
 
+const networkHelp =
+  "Unable to reach the prediction API. Confirm NEXT_PUBLIC_API_BASE points to your deployed backend.";
+
 const describeError = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
+  if (error instanceof TypeError && error.message.toLowerCase().includes("fetch")) {
+    return networkHelp;
   }
-  return typeof error === "string" ? error : "Prediction failed";
+  if (error instanceof Error) {
+    return error.message || networkHelp;
+  }
+  return typeof error === "string" ? error : networkHelp;
 };
 
 const binaryFields: Array<[
