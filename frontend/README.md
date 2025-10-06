@@ -30,6 +30,40 @@ settings configure **Settings → Pages → Build and deployment** to use the
 exported artifacts isolated from the application source while still allowing
 Pages to host the site.
 
+### Manually publishing to `gh-pages`
+
+If you are not using GitHub Actions you can push the exported files yourself:
+
+1. Build the static site with the GitHub Pages environment variables so the
+   correct paths are baked into the export:
+
+   ```bash
+   cd frontend
+   GITHUB_ACTIONS=true GITHUB_REPOSITORY=<owner>/<repo> npm run build
+   ```
+
+2. Create (or update) a local worktree for the `gh-pages` branch that only
+   contains the exported files:
+
+   ```bash
+   git worktree add -B gh-pages ../gh-pages
+   rm -rf ../gh-pages/*
+   cp -R out/. ../gh-pages/
+   ```
+
+3. Commit and push the static files from the worktree directory:
+
+   ```bash
+   cd ../gh-pages
+   git add .
+   git commit -m "Publish static export"
+   git push origin gh-pages
+   ```
+
+4. In the repository settings confirm that **Settings → Pages** is configured
+   to serve from the `gh-pages` branch and the `/ (root)` folder. GitHub Pages
+   will redeploy shortly after the push completes.
+
 ## Styling notes
 The default layout uses system UI fonts so the Docker image does not require network access for font downloads. Global styles live in [`app/globals.css`](app/globals.css) and the top-level layout is defined in [`app/layout.tsx`](app/layout.tsx).
 
