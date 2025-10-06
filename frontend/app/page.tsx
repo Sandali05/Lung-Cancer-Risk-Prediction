@@ -1,7 +1,33 @@
 "use client";
 import React, { useEffect, useState } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
+
+const fetchJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, init);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      const hint = API_BASE.includes("127.0.0.1") || API_BASE.includes("localhost")
+        ? "Set NEXT_PUBLIC_API_BASE to your deployed backend URL."
+        : "Verify that NEXT_PUBLIC_API_BASE points at a reachable backend.";
+      throw new Error(
+        `Unable to reach the backend at ${API_BASE}. ${hint}`
+      );
+    }
+    throw error;
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    const method = init?.method ?? "GET";
+    const detail = body ? ` – ${body}` : "";
+    throw new Error(`${method} ${path} failed: ${response.status} ${response.statusText}${detail}`);
+  }
+
+  return (await response.json()) as T;
+};
 
 type YesNo = "yes" | "no";
 type RadonLevel = "low" | "medium" | "high";
@@ -90,23 +116,15 @@ const fetchPredict = async (
 ): Promise<PredictResponse> => {
   const payload = uiToApiPayload(inputs);
   const query = baselinePct != null ? `?pi_deploy=${(baselinePct / 100).toFixed(4)}` : "";
-  const response = await fetch(`${API_BASE}/predict${query}`, {
+  return fetchJson<PredictResponse>(`/predict${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    throw new Error(`POST /predict failed: ${response.status} ${await response.text()}`);
-  }
-  return (await response.json()) as PredictResponse;
 };
 
 const fetchModelInfo = async (): Promise<ModelInfo> => {
-  const response = await fetch(`${API_BASE}/model-info`);
-  if (!response.ok) {
-    throw new Error(`GET /model-info failed: ${response.status}`);
-  }
-  return (await response.json()) as ModelInfo;
+  return fetchJson<ModelInfo>("/model-info");
 };
 
 const describeError = (error: unknown): string => {

@@ -30,3 +30,7 @@ Render can deploy the two services defined in this repository. The easiest way i
    * `PI_DEPLOY` (optional, both services) – overrides the baseline prevalence if needed.
 
 The backend Dockerfile now reads the `PORT` environment variable provided by Render, so no custom start command is required. The frontend defaults to Node's `next start` runtime so the `NEXT_PUBLIC_API_BASE` environment variable is resolved when the container boots. If you prefer the old static-export behaviour for another hosting target, set `NEXT_OUTPUT_MODE=export` before running `npm run build`.
+
+> **Why am I seeing “Failed to fetch”?**
+>
+> The frontend defaults to `http://127.0.0.1:8000` for local development. When deployed on Render (or any other host) that value points to the web browser itself, not the backend service, so the network request is refused. Set `NEXT_PUBLIC_API_BASE` on the frontend service to your backend's public HTTPS URL to fix the error.
