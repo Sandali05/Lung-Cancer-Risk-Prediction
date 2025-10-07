@@ -1,35 +1,25 @@
 # syntax=docker/dockerfile:1
-
 FROM node:20-bullseye-slim AS deps
-ARG APP_DIR=frontend
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1 \
-    NEXT_FONT_IGNORE_FETCH_ERRORS=1
-COPY ${APP_DIR}/package.json ${APP_DIR}/package-lock.json ./
+ARG NEXT_PUBLIC_API_BASE
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 FROM node:20-bullseye-slim AS builder
-ARG APP_DIR=frontend
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1 \
-    NEXT_FONT_IGNORE_FETCH_ERRORS=1
+ARG NEXT_PUBLIC_API_BASE
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
 COPY --from=deps /app/node_modules ./node_modules
-COPY ${APP_DIR}/ ./
-RUN rm -f next.config.ts
+COPY frontend/ ./
 RUN npm run build
 
 FROM node:20-bullseye-slim AS runner
-ARG APP_DIR=frontend
 WORKDIR /app
-ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1 \
-    NEXT_FONT_IGNORE_FETCH_ERRORS=1
-COPY ${APP_DIR}/package.json ${APP_DIR}/package-lock.json ./
+ENV NODE_ENV=production PORT=3000
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.js ./next.config.js
-RUN chown -R node:node /app
-USER node
-EXPOSE 3000
-CMD ["npm", "run", "start"]
+EXPOSE $PORT
+CMD ["sh","-c","npm run start"]
