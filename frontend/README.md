@@ -12,6 +12,18 @@ This directory contains the Next.js frontend for the lung cancer risk prediction
 - `npm start` — run the production build with `next start`
 - `npm test` — run the ESLint suite (alias for `npm run lint`)
 
+By default the build targets the Node runtime so environment variables such as `NEXT_PUBLIC_API_BASE` are read when the server
+starts. If you need a static export for another hosting target, set `NEXT_OUTPUT_MODE=export` before running `npm run build` and
+serve the generated `out/` directory with your preferred static file host.
+
+## Configuring the backend URL
+
+When the frontend and backend are deployed to different hosts you **must** set the `NEXT_PUBLIC_API_BASE` environment variable
+to the publicly reachable backend origin (for example, `https://your-backend.example.com`). Without this value the app falls
+back to calling whatever origin is serving the frontend, which only works when both services are deployed together. If you see
+an error such as “Unable to reach the backend at http://127.0.0.1:8000” in the browser console, double-check that
+`NEXT_PUBLIC_API_BASE` is configured in the deployment environment and does not point at a loopback address.
+
 ## Styling notes
 The default layout uses system UI fonts so the Docker image does not require network access for font downloads. Global styles live in [`app/globals.css`](app/globals.css) and the top-level layout is defined in [`app/layout.tsx`](app/layout.tsx).
 
